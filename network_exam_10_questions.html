@@ -15,7 +15,8 @@ button.secondary{background:#e2e8f0;color:#172033}button.danger{background:#dc26
 .progress{height:9px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin:10px 0 22px}.bar{height:100%;background:#2563eb;width:0}
 .option{display:block;border:1px solid #cbd5e1;border-radius:12px;padding:14px;margin:10px 0;cursor:pointer}.option:hover{background:#f8fafc}.option input{width:auto;margin-right:10px}
 .hidden{display:none}.score{font-size:42px;font-weight:900;text-align:center}.result-item{padding:13px;border-radius:10px;margin:9px 0;background:#f8fafc}.correct{border-left:5px solid #16a34a}.wrong{border-left:5px solid #dc2626}
-.small{font-size:14px}@media(max-width:600px){.row{grid-template-columns:1fr}.container{padding:10px}.card{padding:18px}}
+.small{font-size:14px}table{width:100%;border-collapse:collapse;margin-top:15px}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left;font-size:14px}th{background:#f1f5f9}
+@media(max-width:600px){.row{grid-template-columns:1fr}.container{padding:10px}.card{padding:18px}}
 </style>
 </head>
 <body>
@@ -28,6 +29,9 @@ button.secondary{background:#e2e8f0;color:#172033}button.danger{background:#dc26
 <div><label>รหัสนักศึกษา</label><input id="studentId" placeholder="กรอกรหัสนักศึกษา"></div>
 </div>
 <br><button onclick="startExam()">เริ่มทำข้อสอบ</button>
+<div style="margin-top: 20px; text-align: right;">
+<button class="secondary" onclick="showTeacherPanel()">สำหรับผู้สอน (ดูคะแนนที่บันทึก)</button>
+</div>
 </div>
 
 <div id="exam" class="card hidden">
@@ -41,6 +45,13 @@ button.secondary{background:#e2e8f0;color:#172033}button.danger{background:#dc26
 <h1>ผลการสอบ</h1>
 <div id="resultInfo"></div><div class="score" id="score"></div><div id="answers"></div>
 <div class="actions"><button onclick="location.reload()">เริ่มใหม่</button><button onclick="window.print()">พิมพ์ผลสอบ</button></div>
+</div>
+
+<div id="teacherPanel" class="card hidden">
+<h1>ระบบจัดการคะแนน (สำหรับผู้สอน)</h1>
+<p class="muted">รายชื่อนักศึกษาที่ทำแบบทดสอบและบันทึกไว้ในเครื่องนี้</p>
+<div id="recordList"></div>
+<div class="actions"><button class="secondary" onclick="clearRecords()" class="danger" style="background:#dc2626;color:white;">ล้างข้อมูลทั้งหมด</button><button onclick="backToHome()">กลับหน้าแรก</button></div>
 </div>
 </div>
 
@@ -58,6 +69,7 @@ const questions=[
 ["IP Address ในข้อใดที่จัดอยู่ในกลุ่ม Private IP Address (Class C) ที่มักใช้ในเครือข่ายตามบ้าน?",["10.0.0.1","172.16.0.1","192.168.1.1","8.8.8.8"],2]
 ];
 let cur=0, ans=Array(10).fill(null), seconds=3600, timerId=null, name="",sid="";
+
 function startExam(){
  name=document.getElementById("studentName").value.trim();sid=document.getElementById("studentId").value.trim();
  if(!name||!sid){alert("กรุณากรอกชื่อ-นามสกุลและรหัสนักศึกษา");return}
@@ -75,11 +87,61 @@ function render(){
 function prevQ(){save();if(cur>0){cur--;render()}}
 function nextQ(){save();if(cur<9){cur++;render()}else finish()}
 function save(){let r=document.querySelector('input[name="answer"]:checked');if(r)ans[cur]=Number(r.value)}
-function finish(){clearInterval(timerId);document.getElementById("exam").classList.add("hidden");document.getElementById("result").classList.remove("hidden");
- let score=ans.reduce((n,a,i)=>n+(a===questions[i][2]?1:0),0);document.getElementById("score").textContent=score+" / 10 คะแนน";
+
+function finish(){
+ clearInterval(timerId);
+ document.getElementById("exam").classList.add("hidden");
+ document.getElementById("result").classList.remove("hidden");
+ let score=ans.reduce((n,a,i)=>n+(a===questions[i][2]?1:0),0);
+ document.getElementById("score").textContent=score+" / 10 คะแนน";
  document.getElementById("resultInfo").innerHTML="<p><b>ชื่อ:</b> "+esc(name)+" &nbsp; <b>รหัส:</b> "+esc(sid)+"</p>";
- let letters=["ก","ข","ค","ง"];document.getElementById("answers").innerHTML=questions.map((q,i)=>{let ok=ans[i]===q[2];return `<div class="result-item ${ok?"correct":"wrong"}"><b>ข้อ ${i+1}: ${ok?"ถูก":"ผิด/ไม่ตอบ"}</b><br>คำตอบของคุณ: ${ans[i]===null?"ไม่ตอบ":letters[ans[i]]+". "+q[1][ans[i]]}<br><b>เฉลย: ${letters[q[2]]}. ${q[1][q[2]]}</b></div>`}).join("");
+ let letters=["ก","ข","ค","ง"];
+ document.getElementById("answers").innerHTML=questions.map((q,i)=>{let ok=ans[i]===q[2];return `<div class="result-item ${ok?"correct":"wrong"}"><b>ข้อ ${i+1}: ${ok?"ถูก":"ผิด/ไม่ตอบ"}</b><br>คำตอบของคุณ: ${ans[i]===null?"ไม่ตอบ":letters[ans[i]]+". "+q[1][ans[i]]}<br><b>เฉลย: ${letters[q[2]]}. ${q[1][q[2]]}</b></div>`}).join("");
+
+ // บันทึกข้อมูลลงใน LocalStorage ของเบราว์เซอร์
+ saveRecord(name, sid, score);
 }
+
+function saveRecord(studentName, studentId, score){
+ let records = JSON.parse(localStorage.getItem("exam_records") || "[]");
+ // ตรวจสอบว่ามีรหัสนี้เคยสอบไปแล้วหรือยัง (อัปเดตถ้ามี หรือเพิ่มใหม่)
+ let existingIndex = records.findIndex(r => r.sid === studentId);
+ let recordData = { name: studentName, sid: studentId, score: score, time: new Date().toLocaleString() };
+ if(existingIndex >= -1){
+     records.push(recordData); // บันทึกเพิ่มใหม่ทุกครั้งที่ทำเสร็จ
+ }
+ localStorage.setItem("exam_records", JSON.stringify(records));
+}
+
+function showTeacherPanel(){
+ document.getElementById("start").classList.add("hidden");
+ document.getElementById("teacherPanel").classList.remove("hidden");
+ let records = JSON.parse(localStorage.getItem("exam_records") || "[]");
+ let html = "";
+ if(records.length === 0){
+     html = "<p>ยังไม่มีประวัติการทำแบบทดสอบในเครื่องนี้</p>";
+ } else {
+     html = `<table><tr><th>ลำดับ</th><th>รหัสนักศึกษา</th><th>ชื่อ-นามสกุล</th><th>คะแนน</th><th>เวลาที่ส่ง</th></tr>`;
+     records.forEach((r, index) => {
+         html += `<tr><td>${index+1}</td><td>${esc(r.sid)}</td><td>${esc(r.name)}</td><td><b>${r.score}</b> / 10</td><td>${r.time}</td></tr>`;
+     });
+     html += `</table>`;
+ }
+ document.getElementById("recordList").innerHTML = html;
+}
+
+function clearRecords(){
+ if(confirm("ต้องการล้างข้อมูลคะแนนทั้งหมดใช่หรือไม่?")){
+     localStorage.removeItem("exam_records");
+     showTeacherPanel();
+ }
+}
+
+function backToHome(){
+ document.getElementById("teacherPanel").classList.add("hidden");
+ document.getElementById("start").classList.remove("hidden");
+}
+
 function esc(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 </script>
 </body></html>
